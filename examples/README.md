@@ -2,6 +2,11 @@
 
 This folder contains runnable examples demonstrating `deck.gl-raster` features.
 
+## Example list
+
+- `cog-basic`: baseline COG viewer
+- `cog-with-editor`: raster + editable GeoJSON line prototype
+
 ## Running an example
 
 ```sh

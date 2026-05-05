@@ -4,6 +4,10 @@ import { MapboxOverlay } from "@deck.gl/mapbox";
 import {
   DrawLineStringMode,
   EditableGeoJsonLayer,
+  type ClickEvent,
+  type GuideFeatureCollection,
+  type ModeProps,
+  type PointerMoveEvent,
   ModifyMode,
   ViewMode,
 } from "@deck.gl-community/editable-layers";
@@ -63,6 +67,10 @@ type EndpointMarker = {
   count: number;
 };
 
+type EndpointSnapDrawModeConfig = {
+  snapTargets?: EndpointRef[];
+};
+
 type CaptureLine = {
   featureIndex: number;
   featureId: string | null;
@@ -85,16 +93,6 @@ type SaveCenterlinesPayload = {
 };
 
 type EditModeKey = "view" | "modify" | "deleteVertex" | "drawLine";
-
-const EDIT_MODES: Record<
-  EditModeKey,
-  typeof ViewMode | typeof ModifyMode | typeof DrawLineStringMode
-> = {
-  view: ViewMode,
-  modify: ModifyMode,
-  deleteVertex: ModifyMode,
-  drawLine: DrawLineStringMode,
-};
 
 const DEFAULT_COG_URL =
   "https://ds-wheels.s3.us-east-1.amazonaws.com/m_4007307_sw_18_060_20220803.tif";
@@ -158,6 +156,10 @@ function getEditHandleKey(info: { object?: any }) {
 }
 
 function getEditHandleRadius(handle: any, hoveredEditHandleKey: string | null) {
+  if (handle.properties?.editHandleType === "snap-target") {
+    return 12;
+  }
+
   if (getEditHandleKey({ object: handle }) === hoveredEditHandleKey) {
     return 14;
   }
@@ -251,6 +253,121 @@ function findNearestEndpoint(
 
   return nearest;
 }
+
+class EndpointSnapDrawLineStringMode extends DrawLineStringMode {
+  getNonSnapTargetPicks(event: ClickEvent | PointerMoveEvent) {
+    return event.picks.filter(
+      (pick) => pick.object?.properties?.editHandleType !== "snap-target",
+    );
+  }
+
+  getSnapTarget(
+    coordinate: Position,
+    props: ModeProps<AnyFeatureCollection>,
+  ) {
+    const modeConfig = props.modeConfig as EndpointSnapDrawModeConfig | undefined;
+    return findNearestEndpoint(
+      modeConfig?.snapTargets ?? [],
+      toCoordinate2d(coordinate),
+      [],
+    );
+  }
+
+  getSnapAwareEvent<T extends ClickEvent | PointerMoveEvent>(
+    event: T,
+    props: ModeProps<AnyFeatureCollection>,
+  ): { event: T; snapTarget: EndpointRef | null } {
+    const snapTarget = this.getSnapTarget(event.mapCoords, props);
+    if (!snapTarget) {
+      return { event, snapTarget: null };
+    }
+
+    return {
+      event: {
+        ...event,
+        mapCoords: snapTarget.coordinate,
+        picks: this.getNonSnapTargetPicks(event),
+      },
+      snapTarget,
+    };
+  }
+
+  handleClick(event: ClickEvent, props: ModeProps<AnyFeatureCollection>) {
+    const clickSequence = this.getClickSequence();
+    const { event: snapAwareEvent, snapTarget } = this.getSnapAwareEvent(
+      event,
+      props,
+    );
+
+    if (snapTarget && clickSequence.length > 0) {
+      const firstCoordinate = toCoordinate2d(clickSequence[0]);
+      if (
+        clickSequence.length > 1 ||
+        !coordinatesWithinTolerance(firstCoordinate, snapTarget.coordinate)
+      ) {
+        this.addClickSequence(snapAwareEvent);
+        this.finishDrawing(props);
+        return;
+      }
+    }
+
+    super.handleClick(snapAwareEvent, props);
+  }
+
+  handlePointerMove(
+    event: PointerMoveEvent,
+    props: ModeProps<AnyFeatureCollection>,
+  ) {
+    const { event: snapAwareEvent } = this.getSnapAwareEvent(event, props);
+    super.handlePointerMove(snapAwareEvent, props);
+  }
+
+  getGuides(props: ModeProps<AnyFeatureCollection>): GuideFeatureCollection {
+    const lastPointerMoveEvent = props.lastPointerMoveEvent;
+    const snapTarget = lastPointerMoveEvent
+      ? this.getSnapTarget(lastPointerMoveEvent.mapCoords, props)
+      : null;
+
+    const guides = super.getGuides({
+      ...props,
+      lastPointerMoveEvent:
+        lastPointerMoveEvent && snapTarget
+          ? {
+              ...lastPointerMoveEvent,
+              mapCoords: snapTarget.coordinate,
+            }
+          : lastPointerMoveEvent,
+    });
+
+    if (snapTarget) {
+      guides.features.push({
+        type: "Feature",
+        properties: {
+          guideType: "editHandle",
+          editHandleType: "snap-target",
+          featureIndex: snapTarget.featureIndex,
+          positionIndexes: [snapTarget.coordinateIndex],
+        },
+        geometry: {
+          type: "Point",
+          coordinates: snapTarget.coordinate,
+        },
+      });
+    }
+
+    return guides;
+  }
+}
+
+const EDIT_MODES: Record<
+  EditModeKey,
+  typeof ViewMode | typeof ModifyMode | typeof DrawLineStringMode
+> = {
+  view: ViewMode,
+  modify: ModifyMode,
+  deleteVertex: ModifyMode,
+  drawLine: EndpointSnapDrawLineStringMode,
+};
 
 function getEndpointMarkers(
   featureCollection: EditableFeatureCollection,
@@ -884,6 +1001,12 @@ export default function App() {
         id: "editable-lines",
         data: editableData,
         mode: EDIT_MODES[mode],
+        modeConfig:
+          mode === "drawLine"
+            ? ({
+                snapTargets: getEndpointRefs(editableData),
+              } satisfies EndpointSnapDrawModeConfig)
+            : undefined,
         selectedFeatureIndexes,
         pickable: true,
         pickingRadius: EDIT_PICKING_RADIUS_PIXELS,
@@ -995,11 +1118,15 @@ export default function App() {
         getEditHandlePointRadius: (handle: any) =>
           getEditHandleRadius(handle, hoveredEditHandleKey),
         getEditHandlePointColor: (handle: any) =>
-          getEditHandleKey({ object: handle }) === hoveredEditHandleKey
+          handle.properties?.editHandleType === "snap-target"
+            ? [0, 210, 255, 255]
+            : getEditHandleKey({ object: handle }) === hoveredEditHandleKey
             ? [255, 170, 0, 255]
             : [192, 0, 0, 255],
         getEditHandlePointOutlineColor: (handle: any) =>
-          getEditHandleKey({ object: handle }) === hoveredEditHandleKey
+          handle.properties?.editHandleType === "snap-target"
+            ? [0, 40, 70, 255]
+            : getEditHandleKey({ object: handle }) === hoveredEditHandleKey
             ? [20, 20, 20, 255]
             : [255, 255, 255, 255],
         onCancelPan: handleEditableLayerCancelPan,

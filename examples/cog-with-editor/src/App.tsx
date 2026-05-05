@@ -1,3 +1,4 @@
+import { PathLayer, ScatterplotLayer } from "@deck.gl/layers";
 import type { MapboxOverlayProps } from "@deck.gl/mapbox";
 import { MapboxOverlay } from "@deck.gl/mapbox";
 import {
@@ -57,6 +58,17 @@ type SharedEndpointDrag = {
   endpoints: EndpointRef[];
 };
 
+type EndpointMarker = {
+  coordinate: Coordinate2d;
+  count: number;
+};
+
+type CaptureLine = {
+  featureIndex: number;
+  featureId: string | null;
+  path: Coordinate2d[];
+};
+
 type LoadedCenterlines = {
   data: EditableFeatureCollection;
   strippedZ: boolean;
@@ -72,7 +84,7 @@ type SaveCenterlinesPayload = {
   };
 };
 
-type EditModeKey = "view" | "modify" | "drawLine";
+type EditModeKey = "view" | "modify" | "deleteVertex" | "drawLine";
 
 const EDIT_MODES: Record<
   EditModeKey,
@@ -80,13 +92,15 @@ const EDIT_MODES: Record<
 > = {
   view: ViewMode,
   modify: ModifyMode,
+  deleteVertex: ModifyMode,
   drawLine: DrawLineStringMode,
 };
 
 const DEFAULT_COG_URL =
   "https://ds-wheels.s3.us-east-1.amazonaws.com/m_4007307_sw_18_060_20220803.tif";
 const CENTERLINE_TABLE_NAME = "centerline";
-const SNAP_TOLERANCE_METERS = 1;
+const SNAP_TOLERANCE_METERS = 5;
+const EDIT_PICKING_RADIUS_PIXELS = 48;
 const WGS84 = "EPSG:4326";
 const TEST_GPKG_SRS = "EPSG:2956";
 
@@ -127,21 +141,28 @@ function isEditableLayerPick(info: {
   );
 }
 
-function getCursorForPick(info: {
-  isDragging?: boolean;
-  object?: any;
-  isGuide?: boolean;
-}) {
-  if (info.isDragging) {
-    return "grabbing";
+function getFeatureId(feature: Feature | undefined) {
+  const id = feature?.properties?.id;
+  return typeof id === "string" ? id : null;
+}
+
+function getEditHandleKey(info: { object?: any }) {
+  const properties = info.object?.properties;
+  if (properties?.guideType !== "editHandle") {
+    return null;
   }
-  if (isEditableLayerPick(info)) {
-    return "grab";
+
+  return [properties.featureIndex, ...(properties.positionIndexes ?? [])].join(
+    ":",
+  );
+}
+
+function getEditHandleRadius(handle: any, hoveredEditHandleKey: string | null) {
+  if (getEditHandleKey({ object: handle }) === hoveredEditHandleKey) {
+    return 14;
   }
-  if (info.object?.geometry?.type === "LineString") {
-    return "pointer";
-  }
-  return "";
+
+  return handle.properties?.editHandleType === "existing" ? 4 : 3;
 }
 
 function toCoordinate2d(position: Position): Coordinate2d {
@@ -192,6 +213,16 @@ function getEndpointRefs(
   return endpoints;
 }
 
+function getCaptureLines(
+  featureCollection: EditableFeatureCollection,
+): CaptureLine[] {
+  return featureCollection.features.map((feature, featureIndex) => ({
+    featureIndex,
+    featureId: getFeatureId(feature),
+    path: feature.geometry.coordinates.map(toCoordinate2d),
+  }));
+}
+
 function isSameEndpoint(a: EndpointRef, b: EndpointRef) {
   return (
     a.featureIndex === b.featureIndex && a.coordinateIndex === b.coordinateIndex
@@ -219,6 +250,30 @@ function findNearestEndpoint(
   }
 
   return nearest;
+}
+
+function getEndpointMarkers(
+  featureCollection: EditableFeatureCollection,
+): EndpointMarker[] {
+  const markers: EndpointMarker[] = [];
+
+  for (const endpoint of getEndpointRefs(featureCollection)) {
+    const marker = markers.find((candidate) =>
+      coordinatesWithinTolerance(candidate.coordinate, endpoint.coordinate),
+    );
+
+    if (marker) {
+      marker.count += 1;
+      continue;
+    }
+
+    markers.push({
+      coordinate: endpoint.coordinate,
+      count: 1,
+    });
+  }
+
+  return markers;
 }
 
 function getMovedEndpoint(
@@ -641,12 +696,20 @@ export default function App() {
   const hasLoadedGeoPackage = useRef(false);
   const nextFeatureId = useRef(1);
   const sharedEndpointDrag = useRef<SharedEndpointDrag | null>(null);
+  const disabledMapDragPan = useRef(false);
 
   const [editableData, setEditableData] =
     useState<EditableFeatureCollection>(INITIAL_LINES);
   const [selectedFeatureIndexes, setSelectedFeatureIndexes] = useState<
     number[]
   >([]);
+  const [hoveredFeatureId, setHoveredFeatureId] = useState<string | null>(null);
+  const [hoveredCaptureFeatureId, setHoveredCaptureFeatureId] = useState<
+    string | null
+  >(null);
+  const [hoveredEditHandleKey, setHoveredEditHandleKey] = useState<
+    string | null
+  >(null);
   const [importStatus, setImportStatus] = useState("No GPKG loaded");
   const [mode, setMode] = useState<EditModeKey>("view");
 
@@ -657,11 +720,127 @@ export default function App() {
     }
   }, []);
 
+  const disableMapDragPan = useCallback(() => {
+    const map = mapRef.current?.getMap();
+    if (!map || disabledMapDragPan.current || !map.dragPan.isEnabled()) {
+      return;
+    }
+
+    map.dragPan.disable();
+    disabledMapDragPan.current = true;
+  }, []);
+
+  const restoreMapDragPan = useCallback(() => {
+    const map = mapRef.current?.getMap();
+    if (!map || !disabledMapDragPan.current) {
+      return;
+    }
+
+    map.dragPan.enable();
+    disabledMapDragPan.current = false;
+  }, []);
+
   useEffect(() => {
     if (mode) {
       setMapCursor("");
     }
   }, [mode, setMapCursor]);
+
+  useEffect(() => {
+    if (mode === "modify" || mode === "deleteVertex") {
+      return;
+    }
+
+    restoreMapDragPan();
+    setMapCursor("");
+  }, [mode, restoreMapDragPan, setMapCursor]);
+
+  useEffect(() => {
+    return () => {
+      restoreMapDragPan();
+    };
+  }, [restoreMapDragPan]);
+
+  const handleOverlayHover = useCallback(
+    (info: { index?: number; object?: any; isGuide?: boolean }) => {
+      const editHandleKey = getEditHandleKey(info);
+      setHoveredEditHandleKey(editHandleKey);
+
+      if (editHandleKey) {
+        const featureIndex = info.object?.properties?.featureIndex;
+        setHoveredFeatureId(
+          typeof featureIndex === "number"
+            ? getFeatureId(editableData.features[featureIndex])
+            : null,
+        );
+        return;
+      }
+
+      if (info.object?.geometry?.type === "LineString") {
+        setHoveredFeatureId(getFeatureId(info.object));
+        return;
+      }
+
+      if (hoveredCaptureFeatureId) {
+        setHoveredFeatureId(hoveredCaptureFeatureId);
+        return;
+      }
+
+      setHoveredFeatureId(null);
+    },
+    [editableData.features, hoveredCaptureFeatureId],
+  );
+
+  const handleCaptureLineHover = useCallback(
+    (info: { object?: CaptureLine | null }) => {
+      if (mode === "drawLine") {
+        return;
+      }
+
+      const featureId = info.object?.featureId ?? null;
+      setHoveredCaptureFeatureId(featureId);
+
+      if (featureId) {
+        setHoveredFeatureId(featureId);
+        return;
+      }
+
+      if (!hoveredEditHandleKey) {
+        setHoveredFeatureId(null);
+      }
+    },
+    [hoveredEditHandleKey, mode],
+  );
+
+  const handleCaptureLineClick = useCallback(
+    (info: { object?: CaptureLine | null }) => {
+      if (mode === "drawLine") {
+        return;
+      }
+
+      const featureIndex = info.object?.featureIndex;
+      if (typeof featureIndex === "number") {
+        setSelectedFeatureIndexes([featureIndex]);
+        return;
+      }
+
+      setSelectedFeatureIndexes([]);
+    },
+    [mode],
+  );
+
+  const handleEditableLayerCancelPan = useCallback(() => {
+    disableMapDragPan();
+    setMapCursor("grabbing");
+  }, [disableMapDragPan, setMapCursor]);
+
+  const selectedFeatureIds = useMemo(() => {
+    return new Set(
+      selectedFeatureIndexes
+        .map((featureIndex) => getFeatureId(editableData.features[featureIndex]))
+        .filter((featureId): featureId is string => featureId !== null),
+    );
+  }, [editableData.features, selectedFeatureIndexes]);
 
   const cogLayer = useMemo(
     () =>
@@ -707,12 +886,21 @@ export default function App() {
         mode: EDIT_MODES[mode],
         selectedFeatureIndexes,
         pickable: true,
-        pickingRadius: 12,
+        pickingRadius: EDIT_PICKING_RADIUS_PIXELS,
+        pickingDepth: 10,
         onEdit: ({
           updatedData,
           editType,
           editContext,
         }: EditableEditAction) => {
+          if (mode === "deleteVertex") {
+            if (editType !== "removePosition") {
+              return;
+            }
+          } else if (editType === "removePosition") {
+            return;
+          }
+
           const lineOnlyData = coerceLineFeatures(updatedData);
           let normalized = normalizeFeatureIds(lineOnlyData, nextFeatureId);
 
@@ -740,6 +928,8 @@ export default function App() {
 
           if (editType === "finishMovePosition") {
             sharedEndpointDrag.current = null;
+            restoreMapDragPan();
+            setMapCursor("");
           }
 
           setEditableData(normalized);
@@ -764,12 +954,111 @@ export default function App() {
           }
           setSelectedFeatureIndexes([]);
         },
-        getLineColor: [255, 50, 50, 255],
-        getLineWidth: 3,
+        getLineColor: (feature: Feature) => {
+          const featureId = getFeatureId(feature);
+          const isSelected = featureId ? selectedFeatureIds.has(featureId) : false;
+          const isHovered = featureId === hoveredFeatureId;
+
+          if (isSelected && isHovered) {
+            return [0, 235, 255, 255];
+          }
+
+          if (isSelected) {
+            return [0, 200, 235, 255];
+          }
+
+          if (isHovered) {
+            return [255, 140, 0, 255];
+          }
+
+          return [255, 50, 50, 255];
+        },
+        getLineWidth: (feature: Feature) => {
+          const featureId = getFeatureId(feature);
+          const isSelected = featureId ? selectedFeatureIds.has(featureId) : false;
+          const isHovered = featureId === hoveredFeatureId;
+
+          if (isSelected && isHovered) {
+            return 5;
+          }
+
+          if (isHovered) {
+            return 5;
+          }
+
+          return 3;
+        },
         lineWidthMinPixels: 2,
         pointRadiusMinPixels: 4,
+        editHandlePointRadiusMinPixels: 4,
+        editHandlePointRadiusMaxPixels: 18,
+        getEditHandlePointRadius: (handle: any) =>
+          getEditHandleRadius(handle, hoveredEditHandleKey),
+        getEditHandlePointColor: (handle: any) =>
+          getEditHandleKey({ object: handle }) === hoveredEditHandleKey
+            ? [255, 170, 0, 255]
+            : [192, 0, 0, 255],
+        getEditHandlePointOutlineColor: (handle: any) =>
+          getEditHandleKey({ object: handle }) === hoveredEditHandleKey
+            ? [20, 20, 20, 255]
+            : [255, 255, 255, 255],
+        onCancelPan: handleEditableLayerCancelPan,
       }),
-    [editableData, mode, selectedFeatureIndexes],
+    [
+      editableData,
+      handleEditableLayerCancelPan,
+      hoveredEditHandleKey,
+      hoveredFeatureId,
+      mode,
+      restoreMapDragPan,
+      selectedFeatureIds,
+      selectedFeatureIndexes,
+    ],
+  );
+
+  const captureLineLayer = useMemo(
+    () =>
+      new PathLayer<CaptureLine>({
+        id: "capture-lines",
+        data: getCaptureLines(editableData),
+        pickable: mode !== "drawLine",
+        widthUnits: "pixels",
+        getPath: (line) => line.path,
+        getColor: (line) =>
+          line.featureId === hoveredFeatureId ? [255, 180, 0, 40] : [0, 0, 0, 1],
+        getWidth: (line) => (line.featureId === hoveredFeatureId ? 24 : 18),
+        widthMinPixels: 18,
+        onHover: handleCaptureLineHover,
+        onClick: handleCaptureLineClick,
+      }),
+    [
+      editableData,
+      handleCaptureLineClick,
+      handleCaptureLineHover,
+      hoveredFeatureId,
+      mode,
+    ],
+  );
+
+  const endpointMarkerLayer = useMemo(
+    () =>
+      new ScatterplotLayer<EndpointMarker>({
+        id: "endpoint-markers",
+        data: getEndpointMarkers(editableData),
+        pickable: false,
+        radiusUnits: "pixels",
+        stroked: true,
+        filled: true,
+        lineWidthUnits: "pixels",
+        getPosition: (marker) => marker.coordinate,
+        getRadius: (marker) => (marker.count > 1 ? 8 : 4),
+        getFillColor: (marker) =>
+          marker.count > 1 ? [0, 210, 255, 220] : [255, 255, 255, 170],
+        getLineColor: (marker) =>
+          marker.count > 1 ? [0, 40, 70, 255] : [255, 190, 0, 220],
+        getLineWidth: (marker) => (marker.count > 1 ? 2 : 1),
+      }),
+    [editableData],
   );
 
   const selectedFeatureLabel =
@@ -833,7 +1122,6 @@ export default function App() {
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
       <MaplibreMap
         ref={mapRef}
-        dragPan={mode === "view"}
         initialViewState={{
           longitude: -114.09,
           latitude: 51.051,
@@ -844,13 +1132,9 @@ export default function App() {
         mapStyle="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
       >
         <DeckGLOverlay
-          layers={[cogLayer, editableLayer]}
+          layers={[cogLayer, captureLineLayer, editableLayer, endpointMarkerLayer]}
           interleaved
-          onDragStart={(info) =>
-            setMapCursor(getCursorForPick({ ...info, isDragging: true }))
-          }
-          onDragEnd={() => setMapCursor("")}
-          onHover={(info) => setMapCursor(getCursorForPick(info))}
+          onHover={handleOverlayHover}
         />
       </MaplibreMap>
 
@@ -887,7 +1171,10 @@ export default function App() {
             View
           </button>
           <button type="button" onClick={() => setMode("modify")}>
-            Edit
+            Move Vertex
+          </button>
+          <button type="button" onClick={() => setMode("deleteVertex")}>
+            Delete Vertex
           </button>
           <button type="button" onClick={() => setMode("drawLine")}>
             Draw Line

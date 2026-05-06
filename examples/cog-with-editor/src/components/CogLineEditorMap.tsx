@@ -4,27 +4,18 @@ import {
   ModifyMode,
   ViewMode,
 } from "@deck.gl-community/editable-layers";
-import sqlWasmUrl from "@ngageoint/geopackage/dist/sql-wasm.wasm?url";
-import type {
-  Feature,
-  GeoJsonProperties,
-  Position,
-} from "geojson";
+import type { Feature, GeoJsonProperties } from "geojson";
 import "maplibre-gl/dist/maplibre-gl.css";
-import proj4 from "proj4";
 import type { ChangeEvent, MutableRefObject } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MapRef } from "react-map-gl/maplibre";
 import { Map as MaplibreMap } from "react-map-gl/maplibre";
 import { EditorToolbar } from "./EditorToolbar.js";
 import {
-  CENTERLINE_TABLE_NAME,
   DEFAULT_COG_URL,
   DRAW_SNAP_TOLERANCE_METERS,
   EDIT_PICKING_RADIUS_PIXELS,
   SNAP_TOLERANCE_METERS,
-  TEST_GPKG_SRS,
-  WGS84,
 } from "../constants.js";
 import { INITIAL_LINES } from "../data/initial-lines.js";
 import {
@@ -35,10 +26,11 @@ import {
   LineStringNetworkModifyMode,
   setLineStringEndpointCoordinate,
   toCoordinate2d,
-  type Coordinate2d,
   type LineStringNetworkDrawModeConfig,
   type LineStringNetworkModifyModeConfig,
 } from "../editing/line-network/index.js";
+import { downloadGeoJson } from "../io/geojson.js";
+import { loadCenterlineTable } from "../io/geopackage.js";
 import { DeckGLOverlay } from "../map/DeckGLOverlay.js";
 import { createCogLayer } from "../raster/create-cog-layer.js";
 import type {
@@ -50,32 +42,14 @@ import type {
   EditableFeatureCollection,
   EditModeKey,
   EndpointMarker,
-  LoadedCenterlines,
   SaveCenterlinesPayload,
 } from "../types.js";
-
-proj4.defs(
-  "EPSG:2956",
-  "+proj=utm +zone=12 +ellps=GRS80 +datum=NAD83 +units=m +no_defs +type=crs",
-);
 
 export async function saveToBackend(
   payload: SaveCenterlinesPayload,
 ): Promise<void> {
   void payload;
   throw new Error("Backend save is not implemented in this prototype.");
-}
-
-function downloadGeoJson(data: EditableFeatureCollection) {
-  const blob = new Blob([JSON.stringify(data, null, 2)], {
-    type: "application/geo+json",
-  });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = "edited-lines.geojson";
-  anchor.click();
-  URL.revokeObjectURL(url);
 }
 
 function isEditableLayerPick(info: {
@@ -210,157 +184,6 @@ function snapNewFeatureEndpoints(
   }
 
   return snappedData;
-}
-
-function transformCoordinate(position: Position, srsId: number) {
-  if (srsId === 4326) {
-    return toCoordinate2d(position);
-  }
-
-  const [longitude, latitude] = proj4(TEST_GPKG_SRS, WGS84, [
-    position[0],
-    position[1],
-  ]);
-  return [longitude, latitude] as Coordinate2d;
-}
-
-function transformLineString(coordinates: Position[], srsId: number) {
-  let strippedZ = false;
-  const transformedCoordinates = coordinates.map((coordinate) => {
-    if (coordinate.length > 2) {
-      strippedZ = true;
-    }
-    return transformCoordinate(coordinate, srsId);
-  });
-
-  return { coordinates: transformedCoordinates, strippedZ };
-}
-
-function getLineStringsFromGeoJson(geoJson: any): Position[][] {
-  if (!geoJson) {
-    return [];
-  }
-
-  if (geoJson.type === "Feature") {
-    return getLineStringsFromGeoJson(geoJson.geometry);
-  }
-
-  if (geoJson.type === "LineString") {
-    return [geoJson.coordinates];
-  }
-
-  if (geoJson.type === "MultiLineString") {
-    return geoJson.coordinates;
-  }
-
-  return [];
-}
-
-function getFeatureProperties(
-  feature: any,
-  fallbackId: string,
-  rowProperties: GeoJsonProperties = {},
-): GeoJsonProperties {
-  const featureProperties =
-    feature.type === "Feature" ? feature.properties : undefined;
-  const properties: NonNullable<GeoJsonProperties> = {
-    ...rowProperties,
-    ...(featureProperties ?? {}),
-  };
-  properties.id =
-    typeof properties.id === "string" ? properties.id : fallbackId;
-  return properties;
-}
-
-function getRowProperties(featureRow: {
-  columnNames: string[];
-  geometryColumn: { name: string };
-  getValueWithColumnName: (columnName: string) => unknown;
-}) {
-  const properties: GeoJsonProperties = {};
-
-  for (const columnName of featureRow.columnNames) {
-    if (columnName === featureRow.geometryColumn.name) {
-      continue;
-    }
-
-    const value = featureRow.getValueWithColumnName(columnName);
-    if (
-      typeof value === "string" ||
-      typeof value === "number" ||
-      typeof value === "boolean" ||
-      value === null
-    ) {
-      properties[columnName] = value;
-    }
-  }
-
-  return properties;
-}
-
-async function loadCenterlineTable(file: File): Promise<LoadedCenterlines> {
-  const { GeoPackageAPI, setSqljsWasmLocateFile } = await import(
-    "@ngageoint/geopackage"
-  );
-  setSqljsWasmLocateFile(() => sqlWasmUrl);
-
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  const geoPackage = await GeoPackageAPI.open(bytes);
-
-  try {
-    if (!geoPackage.hasFeatureTable(CENTERLINE_TABLE_NAME)) {
-      throw new Error("GPKG is missing centerline table");
-    }
-
-    const featureDao = geoPackage.getFeatureDao(CENTERLINE_TABLE_NAME);
-    const srsId = featureDao.srs.srs_id;
-
-    if (srsId !== 4326 && srsId !== 2956) {
-      throw new Error(`Unsupported CRS: EPSG:${srsId}`);
-    }
-
-    const features: EditableFeature[] = [];
-    let strippedZ = false;
-
-    for (const rowValues of featureDao.queryForAll()) {
-      const featureRow = featureDao.createObject(rowValues);
-      const rawFeature = featureRow.geometry.toGeoJSON();
-      const rowProperties = getRowProperties(featureRow);
-      const lineStrings = getLineStringsFromGeoJson(rawFeature);
-
-      lineStrings.forEach((coordinates, lineStringIndex) => {
-        const transformed = transformLineString(coordinates, srsId);
-        strippedZ = strippedZ || transformed.strippedZ;
-
-        features.push({
-          type: "Feature",
-          properties: getFeatureProperties(
-            rawFeature,
-            `gpkg-${featureRow.id}${lineStrings.length > 1 ? `-${lineStringIndex}` : ""}`,
-            rowProperties,
-          ),
-          geometry: {
-            type: "LineString",
-            coordinates: transformed.coordinates,
-          },
-        });
-      });
-    }
-
-    if (features.length === 0) {
-      throw new Error("No LineString features found in centerline");
-    }
-
-    return {
-      data: {
-        type: "FeatureCollection",
-        features,
-      },
-      strippedZ,
-    };
-  } finally {
-    geoPackage.close();
-  }
 }
 
 function getFeatureCollectionBounds(

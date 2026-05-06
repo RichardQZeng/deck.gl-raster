@@ -11,7 +11,6 @@ import {
   type LineStringFeatureCollection,
   type LineStringNetworkDrawModeConfig,
   type LineStringNetworkModifyModeConfig,
-  type LineStringNetworkModeConfig,
 } from "@deck.gl-community/editable-layers/line-network";
 
 const data: LineStringFeatureCollection = {
@@ -57,13 +56,6 @@ const modifyModeConfig: LineStringNetworkModifyModeConfig = {
   moveConnectedEndpoints: true,
 };
 
-const genericModeConfig: LineStringNetworkModeConfig = {
-  snapTolerance: 5,
-  moveConnectedEndpoints: true,
-  finishDrawOnSnap: true,
-  preventZeroLengthDraw: true,
-};
-
 void movedSingle;
 void movedGroup;
 void nearest;
@@ -72,4 +64,3 @@ void drawModeClass;
 void modifyModeClass;
 void drawModeConfig;
 void modifyModeConfig;
-void genericModeConfig;

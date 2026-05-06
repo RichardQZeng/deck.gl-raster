@@ -32,19 +32,27 @@ import {
   WGS84,
 } from "../constants.js";
 import { INITIAL_LINES } from "../data/initial-lines.js";
+import {
+  findNearestLineStringEndpoint,
+  getConnectedLineStringEndpoints,
+  getLineStringEndpointRefs,
+  moveLineStringEndpointGroup,
+  setLineStringEndpointCoordinate,
+  toCoordinate2d,
+  type Coordinate2d,
+  type LineStringEndpointRef,
+} from "../editing/line-network/index.js";
 import { DeckGLOverlay } from "../map/DeckGLOverlay.js";
 import { createCogLayer } from "../raster/create-cog-layer.js";
 import type {
   AnyFeatureCollection,
   CaptureLine,
-  Coordinate2d,
   EditableEditAction,
   EditableEditContext,
   EditableFeature,
   EditableFeatureCollection,
   EditModeKey,
   EndpointMarker,
-  EndpointRef,
   EndpointSnapDrawModeConfig,
   LoadedCenterlines,
   SaveCenterlinesPayload,
@@ -115,54 +123,6 @@ function getEditHandleRadius(handle: any, hoveredEditHandleKey: string | null) {
   return handle.properties?.editHandleType === "existing" ? 4 : 3;
 }
 
-function toCoordinate2d(position: Position): Coordinate2d {
-  return [position[0], position[1]];
-}
-
-function distanceMeters(a: Coordinate2d, b: Coordinate2d) {
-  const metersPerDegreeLatitude = 111_320;
-  const averageLatitudeRadians = (((a[1] + b[1]) / 2) * Math.PI) / 180;
-  const metersPerDegreeLongitude =
-    metersPerDegreeLatitude * Math.cos(averageLatitudeRadians);
-  const dx = (a[0] - b[0]) * metersPerDegreeLongitude;
-  const dy = (a[1] - b[1]) * metersPerDegreeLatitude;
-  return Math.sqrt(dx * dx + dy * dy);
-}
-
-function coordinatesWithinTolerance(a: Coordinate2d, b: Coordinate2d) {
-  return distanceMeters(a, b) <= SNAP_TOLERANCE_METERS;
-}
-
-function getEndpointRefs(
-  featureCollection: EditableFeatureCollection,
-): EndpointRef[] {
-  const endpoints: EndpointRef[] = [];
-
-  featureCollection.features.forEach((feature, featureIndex) => {
-    const { coordinates } = feature.geometry;
-    if (coordinates.length === 0) {
-      return;
-    }
-
-    endpoints.push({
-      featureIndex,
-      coordinateIndex: 0,
-      coordinate: toCoordinate2d(coordinates[0]),
-    });
-
-    if (coordinates.length > 1) {
-      const coordinateIndex = coordinates.length - 1;
-      endpoints.push({
-        featureIndex,
-        coordinateIndex,
-        coordinate: toCoordinate2d(coordinates[coordinateIndex]),
-      });
-    }
-  });
-
-  return endpoints;
-}
-
 function getCaptureLines(
   featureCollection: EditableFeatureCollection,
 ): CaptureLine[] {
@@ -171,36 +131,6 @@ function getCaptureLines(
     featureId: getFeatureId(feature),
     path: feature.geometry.coordinates.map(toCoordinate2d),
   }));
-}
-
-function isSameEndpoint(a: EndpointRef, b: EndpointRef) {
-  return (
-    a.featureIndex === b.featureIndex && a.coordinateIndex === b.coordinateIndex
-  );
-}
-
-function findNearestEndpoint(
-  endpoints: EndpointRef[],
-  coordinate: Coordinate2d,
-  ignoredEndpoints: EndpointRef[],
-  toleranceMeters = SNAP_TOLERANCE_METERS,
-) {
-  let nearest: EndpointRef | null = null;
-  let nearestDistance = Number.POSITIVE_INFINITY;
-
-  for (const endpoint of endpoints) {
-    if (ignoredEndpoints.some((ignored) => isSameEndpoint(ignored, endpoint))) {
-      continue;
-    }
-
-    const distance = distanceMeters(endpoint.coordinate, coordinate);
-    if (distance <= toleranceMeters && distance < nearestDistance) {
-      nearest = endpoint;
-      nearestDistance = distance;
-    }
-  }
-
-  return nearest;
 }
 
 class EndpointSnapDrawLineStringMode extends DrawLineStringMode {
@@ -215,18 +145,17 @@ class EndpointSnapDrawLineStringMode extends DrawLineStringMode {
     props: ModeProps<AnyFeatureCollection>,
   ) {
     const modeConfig = props.modeConfig as EndpointSnapDrawModeConfig | undefined;
-    return findNearestEndpoint(
+    return findNearestLineStringEndpoint(
       modeConfig?.snapTargets ?? [],
       toCoordinate2d(coordinate),
-      [],
-      DRAW_SNAP_TOLERANCE_METERS,
+      { ignore: [], toleranceMeters: DRAW_SNAP_TOLERANCE_METERS },
     );
   }
 
   getSnapAwareEvent<T extends ClickEvent | PointerMoveEvent>(
     event: T,
     props: ModeProps<AnyFeatureCollection>,
-  ): { event: T; snapTarget: EndpointRef | null } {
+  ): { event: T; snapTarget: LineStringEndpointRef | null } {
     const snapTarget = this.getSnapTarget(event.mapCoords, props);
     if (!snapTarget) {
       return { event, snapTarget: null };
@@ -253,7 +182,10 @@ class EndpointSnapDrawLineStringMode extends DrawLineStringMode {
       const firstCoordinate = toCoordinate2d(clickSequence[0]);
       if (
         clickSequence.length > 1 ||
-        !coordinatesWithinTolerance(firstCoordinate, snapTarget.coordinate)
+        !findNearestLineStringEndpoint([snapTarget], firstCoordinate, {
+          ignore: [],
+          toleranceMeters: DRAW_SNAP_TOLERANCE_METERS,
+        })
       ) {
         this.addClickSequence(snapAwareEvent);
         this.finishDrawing(props);
@@ -323,20 +255,26 @@ function getEndpointMarkers(
   featureCollection: EditableFeatureCollection,
 ): EndpointMarker[] {
   const markers: EndpointMarker[] = [];
+  const handledEndpointKeys = new Set<string>();
 
-  for (const endpoint of getEndpointRefs(featureCollection)) {
-    const marker = markers.find((candidate) =>
-      coordinatesWithinTolerance(candidate.coordinate, endpoint.coordinate),
-    );
-
-    if (marker) {
-      marker.count += 1;
+  for (const endpoint of getLineStringEndpointRefs(featureCollection)) {
+    const endpointKey = `${endpoint.featureIndex}:${endpoint.coordinateIndex}`;
+    if (handledEndpointKeys.has(endpointKey)) {
       continue;
+    }
+
+    const group = getConnectedLineStringEndpoints(featureCollection, endpoint, {
+      toleranceMeters: SNAP_TOLERANCE_METERS,
+    });
+    for (const groupEndpoint of group.endpoints) {
+      handledEndpointKeys.add(
+        `${groupEndpoint.featureIndex}:${groupEndpoint.coordinateIndex}`,
+      );
     }
 
     markers.push({
       coordinate: endpoint.coordinate,
-      count: 1,
+      count: group.endpoints.length,
     });
   }
 
@@ -346,7 +284,7 @@ function getEndpointMarkers(
 function getMovedEndpoint(
   featureCollection: EditableFeatureCollection,
   editContext: EditableEditContext | undefined,
-): EndpointRef | null {
+): LineStringEndpointRef | null {
   const featureIndex = editContext?.featureIndexes?.[0];
   const coordinateIndex = editContext?.positionIndexes?.[0];
 
@@ -376,51 +314,6 @@ function getMovedEndpoint(
   };
 }
 
-function applyEndpointCoordinate(
-  featureCollection: EditableFeatureCollection,
-  endpoints: EndpointRef[],
-  coordinate: Coordinate2d,
-): EditableFeatureCollection {
-  if (endpoints.length === 0) {
-    return featureCollection;
-  }
-
-  const endpointsByFeature = new Map<number, EndpointRef[]>();
-  for (const endpoint of endpoints) {
-    const featureEndpoints =
-      endpointsByFeature.get(endpoint.featureIndex) ?? [];
-    featureEndpoints.push(endpoint);
-    endpointsByFeature.set(endpoint.featureIndex, featureEndpoints);
-  }
-
-  return {
-    ...featureCollection,
-    features: featureCollection.features.map((feature, featureIndex) => {
-      const featureEndpoints = endpointsByFeature.get(featureIndex);
-      if (!featureEndpoints) {
-        return feature;
-      }
-
-      const coordinates = feature.geometry.coordinates.map((position) => [
-        ...position,
-      ]);
-      for (const endpoint of featureEndpoints) {
-        if (coordinates[endpoint.coordinateIndex]) {
-          coordinates[endpoint.coordinateIndex] = coordinate;
-        }
-      }
-
-      return {
-        ...feature,
-        geometry: {
-          ...feature.geometry,
-          coordinates,
-        },
-      };
-    }),
-  };
-}
-
 function applySharedEndpointMove(
   previousData: EditableFeatureCollection,
   updatedData: EditableFeatureCollection,
@@ -446,24 +339,27 @@ function applySharedEndpointMove(
     dragRef.current = {
       featureIndex: movedEndpoint.featureIndex,
       coordinateIndex: movedEndpoint.coordinateIndex,
-      endpoints: getEndpointRefs(previousData).filter((endpoint) =>
-        coordinatesWithinTolerance(
-          endpoint.coordinate,
-          previousMovedEndpoint.coordinate,
-        ),
-      ),
+      endpoints: getConnectedLineStringEndpoints(
+        previousData,
+        previousMovedEndpoint,
+        { toleranceMeters: SNAP_TOLERANCE_METERS },
+      ).endpoints,
     };
   }
 
   const sharedEndpoints = dragRef.current.endpoints;
-  const snapTarget = findNearestEndpoint(
-    getEndpointRefs(updatedData),
+  const snapTarget = findNearestLineStringEndpoint(
+    getLineStringEndpointRefs(updatedData),
     movedEndpoint.coordinate,
-    sharedEndpoints,
+    { ignore: sharedEndpoints, toleranceMeters: SNAP_TOLERANCE_METERS },
   );
   const finalCoordinate = snapTarget?.coordinate ?? movedEndpoint.coordinate;
 
-  return applyEndpointCoordinate(updatedData, sharedEndpoints, finalCoordinate);
+  return moveLineStringEndpointGroup(
+    updatedData,
+    { representativeCoordinate: sharedEndpoints[0]?.coordinate ?? finalCoordinate, endpoints: sharedEndpoints },
+    finalCoordinate,
+  );
 }
 
 function snapNewFeatureEndpoints(
@@ -477,7 +373,7 @@ function snapNewFeatureEndpoints(
   }
 
   let snappedData = updatedData;
-  const existingEndpoints = getEndpointRefs(previousData);
+  const existingEndpoints = getLineStringEndpointRefs(previousData);
 
   for (const featureIndex of featureIndexes) {
     const feature = snappedData.features[featureIndex];
@@ -488,21 +384,19 @@ function snapNewFeatureEndpoints(
     const lastIndex = feature.geometry.coordinates.length - 1;
     for (const coordinateIndex of [0, lastIndex]) {
       const coordinate = feature.geometry.coordinates[coordinateIndex];
-      const snapTarget = findNearestEndpoint(
+      const snapTarget = findNearestLineStringEndpoint(
         existingEndpoints,
         toCoordinate2d(coordinate),
-        [],
+        { ignore: [], toleranceMeters: SNAP_TOLERANCE_METERS },
       );
       if (snapTarget) {
-        snappedData = applyEndpointCoordinate(
+        snappedData = setLineStringEndpointCoordinate(
           snappedData,
-          [
-            {
-              featureIndex,
-              coordinateIndex,
-              coordinate: toCoordinate2d(coordinate),
-            },
-          ],
+          {
+            featureIndex,
+            coordinateIndex,
+            coordinate: toCoordinate2d(coordinate),
+          },
           snapTarget.coordinate,
         );
       }
@@ -942,7 +836,7 @@ export function CogLineEditorMap() {
         modeConfig:
           mode === "drawLine"
             ? ({
-                snapTargets: getEndpointRefs(editableData),
+                snapTargets: getLineStringEndpointRefs(editableData),
               } satisfies EndpointSnapDrawModeConfig)
             : undefined,
         selectedFeatureIndexes,

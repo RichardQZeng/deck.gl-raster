@@ -1,9 +1,12 @@
 import type { Feature, FeatureCollection, LineString } from "geojson";
+import type {
+  Coordinate2d,
+  LineStringEndpointRef,
+} from "./editing/line-network/index.js";
 
 export type AnyFeatureCollection = FeatureCollection;
 export type EditableFeatureCollection = FeatureCollection<LineString>;
 export type EditableFeature = Feature<LineString>;
-export type Coordinate2d = [number, number];
 
 export type EditableEditContext = {
   featureIndexes?: number[];
@@ -17,16 +20,10 @@ export type EditableEditAction = {
   editContext?: EditableEditContext;
 };
 
-export type EndpointRef = {
-  featureIndex: number;
-  coordinateIndex: number;
-  coordinate: Coordinate2d;
-};
-
 export type SharedEndpointDrag = {
   featureIndex: number;
   coordinateIndex: number;
-  endpoints: EndpointRef[];
+  endpoints: LineStringEndpointRef[];
 };
 
 export type EndpointMarker = {
@@ -35,7 +32,7 @@ export type EndpointMarker = {
 };
 
 export type EndpointSnapDrawModeConfig = {
-  snapTargets?: EndpointRef[];
+  snapTargets?: LineStringEndpointRef[];
 };
 
 export type CaptureLine = {

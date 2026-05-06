@@ -5,8 +5,10 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "check:editing-isolation": "node scripts/check-editing-isolation.mjs",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
+    "verify": "pnpm check:editing-isolation && pnpm typecheck && pnpm build",
     "publish": "pnpm build && gh-pages -d dist -b gh-pages -e examples/cog-with-editor"
   },
   "dependencies": {

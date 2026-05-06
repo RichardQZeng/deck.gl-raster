@@ -1,3 +1,4 @@
+export { LineStringNetworkDrawMode } from "./draw-mode.js";
 export {
   getConnectedLineStringEndpoints,
   getLineStringEndpointRefs,
@@ -6,6 +7,9 @@ export {
   toCoordinate2d,
 } from "./endpoints.js";
 export { findNearestLineStringEndpoint } from "./snapping.js";
+export type {
+  LineStringNetworkDrawModeConfig,
+} from "./draw-mode.js";
 export type {
   Coordinate2d,
   LineStringEndpointGroup,

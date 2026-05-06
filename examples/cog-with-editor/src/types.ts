@@ -31,10 +31,6 @@ export type EndpointMarker = {
   count: number;
 };
 
-export type EndpointSnapDrawModeConfig = {
-  snapTargets?: LineStringEndpointRef[];
-};
-
 export type CaptureLine = {
   featureIndex: number;
   featureId: string | null;

@@ -1,11 +1,6 @@
 import { PathLayer, ScatterplotLayer } from "@deck.gl/layers";
 import {
-  DrawLineStringMode,
   EditableGeoJsonLayer,
-  type ClickEvent,
-  type GuideFeatureCollection,
-  type ModeProps,
-  type PointerMoveEvent,
   ModifyMode,
   ViewMode,
 } from "@deck.gl-community/editable-layers";
@@ -36,11 +31,13 @@ import {
   findNearestLineStringEndpoint,
   getConnectedLineStringEndpoints,
   getLineStringEndpointRefs,
+  LineStringNetworkDrawMode,
   moveLineStringEndpointGroup,
   setLineStringEndpointCoordinate,
   toCoordinate2d,
   type Coordinate2d,
   type LineStringEndpointRef,
+  type LineStringNetworkDrawModeConfig,
 } from "../editing/line-network/index.js";
 import { DeckGLOverlay } from "../map/DeckGLOverlay.js";
 import { createCogLayer } from "../raster/create-cog-layer.js";
@@ -53,7 +50,6 @@ import type {
   EditableFeatureCollection,
   EditModeKey,
   EndpointMarker,
-  EndpointSnapDrawModeConfig,
   LoadedCenterlines,
   SaveCenterlinesPayload,
   SharedEndpointDrag,
@@ -133,122 +129,14 @@ function getCaptureLines(
   }));
 }
 
-class EndpointSnapDrawLineStringMode extends DrawLineStringMode {
-  getNonSnapTargetPicks(event: ClickEvent | PointerMoveEvent) {
-    return event.picks.filter(
-      (pick) => pick.object?.properties?.editHandleType !== "snap-target",
-    );
-  }
-
-  getSnapTarget(
-    coordinate: Position,
-    props: ModeProps<AnyFeatureCollection>,
-  ) {
-    const modeConfig = props.modeConfig as EndpointSnapDrawModeConfig | undefined;
-    return findNearestLineStringEndpoint(
-      modeConfig?.snapTargets ?? [],
-      toCoordinate2d(coordinate),
-      { ignore: [], toleranceMeters: DRAW_SNAP_TOLERANCE_METERS },
-    );
-  }
-
-  getSnapAwareEvent<T extends ClickEvent | PointerMoveEvent>(
-    event: T,
-    props: ModeProps<AnyFeatureCollection>,
-  ): { event: T; snapTarget: LineStringEndpointRef | null } {
-    const snapTarget = this.getSnapTarget(event.mapCoords, props);
-    if (!snapTarget) {
-      return { event, snapTarget: null };
-    }
-
-    return {
-      event: {
-        ...event,
-        mapCoords: snapTarget.coordinate,
-        picks: this.getNonSnapTargetPicks(event),
-      },
-      snapTarget,
-    };
-  }
-
-  handleClick(event: ClickEvent, props: any) {
-    const clickSequence = this.getClickSequence();
-    const { event: snapAwareEvent, snapTarget } = this.getSnapAwareEvent(
-      event,
-      props,
-    );
-
-    if (snapTarget && clickSequence.length > 0) {
-      const firstCoordinate = toCoordinate2d(clickSequence[0]);
-      if (
-        clickSequence.length > 1 ||
-        !findNearestLineStringEndpoint([snapTarget], firstCoordinate, {
-          ignore: [],
-          toleranceMeters: DRAW_SNAP_TOLERANCE_METERS,
-        })
-      ) {
-        this.addClickSequence(snapAwareEvent);
-        this.finishDrawing(props);
-        return;
-      }
-    }
-
-    super.handleClick(snapAwareEvent, props);
-  }
-
-  handlePointerMove(
-    event: PointerMoveEvent,
-    props: any,
-  ) {
-    const { event: snapAwareEvent } = this.getSnapAwareEvent(event, props);
-    super.handlePointerMove(snapAwareEvent, props);
-  }
-
-  getGuides(props: any): GuideFeatureCollection {
-    const lastPointerMoveEvent = props.lastPointerMoveEvent;
-    const snapTarget = lastPointerMoveEvent
-      ? this.getSnapTarget(lastPointerMoveEvent.mapCoords, props)
-      : null;
-
-    const guides = super.getGuides({
-      ...props,
-      lastPointerMoveEvent:
-        lastPointerMoveEvent && snapTarget
-          ? {
-              ...lastPointerMoveEvent,
-              mapCoords: snapTarget.coordinate,
-            }
-          : lastPointerMoveEvent,
-    });
-
-    if (snapTarget) {
-      guides.features.push({
-        type: "Feature",
-        properties: {
-          guideType: "editHandle",
-          editHandleType: "snap-target",
-          featureIndex: snapTarget.featureIndex,
-          positionIndexes: [snapTarget.coordinateIndex],
-        },
-        geometry: {
-          type: "Point",
-          coordinates: snapTarget.coordinate,
-        },
-      });
-    }
-
-    return guides;
-  }
-}
-
 const EDIT_MODES: Record<
   EditModeKey,
-  typeof ViewMode | typeof ModifyMode | typeof DrawLineStringMode
+  typeof ViewMode | typeof ModifyMode | typeof LineStringNetworkDrawMode
 > = {
   view: ViewMode,
   modify: ModifyMode,
   deleteVertex: ModifyMode,
-  drawLine: EndpointSnapDrawLineStringMode,
+  drawLine: LineStringNetworkDrawMode,
 };
 
 function getEndpointMarkers(
@@ -837,7 +725,8 @@ export function CogLineEditorMap() {
           mode === "drawLine"
             ? ({
                 snapTargets: getLineStringEndpointRefs(editableData),
-              } satisfies EndpointSnapDrawModeConfig)
+                snapTolerance: DRAW_SNAP_TOLERANCE_METERS,
+              } satisfies LineStringNetworkDrawModeConfig)
             : undefined,
         selectedFeatureIndexes,
         pickable: true,

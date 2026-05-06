@@ -7,8 +7,9 @@
     "build": "vite build",
     "check:editing-isolation": "node scripts/check-editing-isolation.mjs",
     "preview": "vite preview",
+    "typecheck:consumer": "pnpm exec tsc --noEmit -p test-consumer",
     "typecheck": "tsc --noEmit",
-    "verify": "pnpm check:editing-isolation && pnpm typecheck && pnpm build",
+    "verify": "pnpm check:editing-isolation && pnpm typecheck && pnpm typecheck:consumer && pnpm build",
     "publish": "pnpm build && gh-pages -d dist -b gh-pages -e examples/cog-with-editor"
   },
   "dependencies": {

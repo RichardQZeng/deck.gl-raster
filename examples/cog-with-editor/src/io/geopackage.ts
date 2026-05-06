@@ -6,7 +6,10 @@ import {
   TEST_GPKG_SRS,
   WGS84,
 } from "../constants.js";
-import { toCoordinate2d, type Coordinate2d } from "../editing/line-network/index.js";
+import {
+  toCoordinate2d,
+  type Coordinate2d,
+} from "@deck.gl-community/editable-layers/line-network";
 import type { EditableFeature, LoadedCenterlines } from "../types.js";
 
 proj4.defs(

@@ -1,5 +1,5 @@
 import type { Feature, FeatureCollection, LineString } from "geojson";
-import type { Coordinate2d } from "./editing/line-network/index.js";
+import type { Coordinate2d } from "@deck.gl-community/editable-layers/line-network";
 
 export type AnyFeatureCollection = FeatureCollection;
 export type EditableFeatureCollection = FeatureCollection<LineString>;

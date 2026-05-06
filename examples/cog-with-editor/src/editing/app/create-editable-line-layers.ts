@@ -18,7 +18,7 @@ import {
   toCoordinate2d,
   type LineStringNetworkDrawModeConfig,
   type LineStringNetworkModifyModeConfig,
-} from "../line-network/index.js";
+} from "@deck.gl-community/editable-layers/line-network";
 import type {
   CaptureLine,
   EditableEditAction,

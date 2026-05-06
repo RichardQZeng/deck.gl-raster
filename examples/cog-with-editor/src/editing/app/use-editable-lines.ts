@@ -11,7 +11,7 @@ import {
   getLineStringEndpointRefs,
   setLineStringEndpointCoordinate,
   toCoordinate2d,
-} from "../line-network/index.js";
+} from "@deck.gl-community/editable-layers/line-network";
 import {
   createCaptureLineLayer,
   createEditableLineLayer,

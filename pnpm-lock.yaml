@@ -227,8 +227,8 @@ importers:
   examples/cog-with-editor:
     dependencies:
       '@deck.gl-community/editable-layers':
-        specifier: ^9.3.2
-        version: 9.3.2(67c2029482664ec5c8fe205a0d1aa0ce)
+        specifier: file:D:/BERATools/tangeo-desktop/agents/deck.gl-community/modules/editable-layers/deck.gl-community-editable-layers-9.3.2.tgz
+        version: file:../deck.gl-community/modules/editable-layers/deck.gl-community-editable-layers-9.3.2.tgz(67c2029482664ec5c8fe205a0d1aa0ce)
       '@deck.gl-community/layers':
         specifier: ^9.3.2
         version: 9.3.2(@deck.gl/core@9.3.1)(@deck.gl/layers@9.3.1(@deck.gl/core@9.3.1)(@loaders.gl/core@4.3.4)(@luma.gl/core@9.3.3)(@luma.gl/engine@9.3.3(@luma.gl/core@9.3.3)(@luma.gl/shadertools@9.3.3(@luma.gl/core@9.3.3))))(@deck.gl/mesh-layers@9.3.1(@deck.gl/core@9.3.1)(@loaders.gl/core@4.3.4)(@luma.gl/core@9.3.3)(@luma.gl/engine@9.3.3(@luma.gl/core@9.3.3)(@luma.gl/shadertools@9.3.3(@luma.gl/core@9.3.3)))(@luma.gl/gltf@9.3.3(@luma.gl/core@9.3.3)(@luma.gl/engine@9.3.3(@luma.gl/core@9.3.3)(@luma.gl/shadertools@9.3.3(@luma.gl/core@9.3.3)))(@luma.gl/shadertools@9.3.3(@luma.gl/core@9.3.3)))(@luma.gl/shadertools@9.3.3(@luma.gl/core@9.3.3)))(@loaders.gl/core@4.3.4)(@luma.gl/core@9.3.3)(@luma.gl/engine@9.3.3(@luma.gl/core@9.3.3)(@luma.gl/shadertools@9.3.3(@luma.gl/core@9.3.3)))
@@ -2105,8 +2105,9 @@ packages:
     peerDependencies:
       postcss: ^8.4
 
-  '@deck.gl-community/editable-layers@9.3.2':
-    resolution: {integrity: sha512-NJIMQyMQGrzAO7mPmaBAAq84xVjDA8lgOnimGkTMltbdEWiw1xnQayhTF0lKSs+/OeU2LrTHWg04jc4Vq3ILtA==}
+  '@deck.gl-community/editable-layers@file:../deck.gl-community/modules/editable-layers/deck.gl-community-editable-layers-9.3.2.tgz':
+    resolution: {integrity: sha512-FGzgA1KkixFH5yU0c9e6dmVm1dgQO0x8V/shQ+ZoighZXgaZYZim7cFk2qVa0C2qOqHEkWdj/y6WrYgkIQTBxg==, tarball: file:../deck.gl-community/modules/editable-layers/deck.gl-community-editable-layers-9.3.2.tgz}
+    version: 9.3.2
     peerDependencies:
       '@deck.gl-community/layers': ~9.3.0
       '@deck.gl/core': ^9.3.1
@@ -10529,7 +10530,7 @@ snapshots:
     dependencies:
       postcss: 8.5.12
 
-  '@deck.gl-community/editable-layers@9.3.2(67c2029482664ec5c8fe205a0d1aa0ce)':
+  '@deck.gl-community/editable-layers@file:../deck.gl-community/modules/editable-layers/deck.gl-community-editable-layers-9.3.2.tgz(67c2029482664ec5c8fe205a0d1aa0ce)':
     dependencies:
       '@deck.gl-community/layers': 9.3.2(@deck.gl/core@9.3.1)(@deck.gl/layers@9.3.1(@deck.gl/core@9.3.1)(@loaders.gl/core@4.3.4)(@luma.gl/core@9.3.3)(@luma.gl/engine@9.3.3(@luma.gl/core@9.3.3)(@luma.gl/shadertools@9.3.3(@luma.gl/core@9.3.3))))(@deck.gl/mesh-layers@9.3.1(@deck.gl/core@9.3.1)(@loaders.gl/core@4.3.4)(@luma.gl/core@9.3.3)(@luma.gl/engine@9.3.3(@luma.gl/core@9.3.3)(@luma.gl/shadertools@9.3.3(@luma.gl/core@9.3.3)))(@luma.gl/gltf@9.3.3(@luma.gl/core@9.3.3)(@luma.gl/engine@9.3.3(@luma.gl/core@9.3.3)(@luma.gl/shadertools@9.3.3(@luma.gl/core@9.3.3)))(@luma.gl/shadertools@9.3.3(@luma.gl/core@9.3.3)))(@luma.gl/shadertools@9.3.3(@luma.gl/core@9.3.3)))(@loaders.gl/core@4.3.4)(@luma.gl/core@9.3.3)(@luma.gl/engine@9.3.3(@luma.gl/core@9.3.3)(@luma.gl/shadertools@9.3.3(@luma.gl/core@9.3.3)))
       '@deck.gl/core': 9.3.1

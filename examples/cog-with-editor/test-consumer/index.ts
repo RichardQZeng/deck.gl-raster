@@ -12,7 +12,7 @@ import {
   type LineStringNetworkDrawModeConfig,
   type LineStringNetworkModifyModeConfig,
   type LineStringNetworkModeConfig,
-} from "../src/editing/line-network/index.js";
+} from "@deck.gl-community/editable-layers/line-network";
 
 const data: LineStringFeatureCollection = {
   type: "FeatureCollection",

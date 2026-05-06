@@ -5,8 +5,8 @@ import {
   getLineStringEndpointRefs,
   moveLineStringEndpointGroup,
   setLineStringEndpointCoordinate,
-} from "../src/editing/line-network/index.js";
-import type { LineStringFeatureCollection } from "../src/editing/line-network/index.js";
+} from "@deck.gl-community/editable-layers/line-network";
+import type { LineStringFeatureCollection } from "@deck.gl-community/editable-layers/line-network";
 
 const sampleData: LineStringFeatureCollection = {
   type: "FeatureCollection",

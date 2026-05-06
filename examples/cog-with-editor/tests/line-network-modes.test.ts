@@ -11,7 +11,7 @@ import {
   LineStringNetworkDrawMode,
   LineStringNetworkModifyMode,
   type LineStringFeatureCollection,
-} from "../src/editing/line-network/index.js";
+} from "@deck.gl-community/editable-layers/line-network";
 
 function createClickEvent(
   mapCoords: [number, number],

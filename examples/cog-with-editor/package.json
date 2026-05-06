@@ -5,17 +5,16 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "check:editing-isolation": "node scripts/check-editing-isolation.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck:consumer": "pnpm exec tsc --noEmit -p test-consumer",
     "typecheck": "tsc --noEmit",
-    "verify": "pnpm check:editing-isolation && pnpm typecheck && pnpm typecheck:consumer && pnpm test && pnpm build",
+    "verify": "pnpm typecheck && pnpm typecheck:consumer && pnpm test && pnpm build",
     "publish": "pnpm build && gh-pages -d dist -b gh-pages -e examples/cog-with-editor"
   },
   "dependencies": {
-    "@deck.gl-community/editable-layers": "file:D:/BERATools/tangeo-desktop/agents/deck.gl-community/modules/editable-layers/deck.gl-community-editable-layers-9.3.2.tgz",
+    "@deck.gl-community/editable-layers": "file:../../../deck.gl-community/modules/editable-layers",
     "@deck.gl-community/layers": "^9.3.2",
     "@deck.gl/core": "^9.3.1",
     "@deck.gl/extensions": "^9.3.1",

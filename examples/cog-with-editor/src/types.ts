@@ -1,8 +1,5 @@
 import type { Feature, FeatureCollection, LineString } from "geojson";
-import type {
-  Coordinate2d,
-  LineStringEndpointRef,
-} from "./editing/line-network/index.js";
+import type { Coordinate2d } from "./editing/line-network/index.js";
 
 export type AnyFeatureCollection = FeatureCollection;
 export type EditableFeatureCollection = FeatureCollection<LineString>;
@@ -18,12 +15,6 @@ export type EditableEditAction = {
   updatedData: AnyFeatureCollection;
   editType: string;
   editContext?: EditableEditContext;
-};
-
-export type SharedEndpointDrag = {
-  featureIndex: number;
-  coordinateIndex: number;
-  endpoints: LineStringEndpointRef[];
 };
 
 export type EndpointMarker = {

@@ -32,12 +32,12 @@ import {
   getConnectedLineStringEndpoints,
   getLineStringEndpointRefs,
   LineStringNetworkDrawMode,
-  moveLineStringEndpointGroup,
+  LineStringNetworkModifyMode,
   setLineStringEndpointCoordinate,
   toCoordinate2d,
   type Coordinate2d,
-  type LineStringEndpointRef,
   type LineStringNetworkDrawModeConfig,
+  type LineStringNetworkModifyModeConfig,
 } from "../editing/line-network/index.js";
 import { DeckGLOverlay } from "../map/DeckGLOverlay.js";
 import { createCogLayer } from "../raster/create-cog-layer.js";
@@ -52,7 +52,6 @@ import type {
   EndpointMarker,
   LoadedCenterlines,
   SaveCenterlinesPayload,
-  SharedEndpointDrag,
 } from "../types.js";
 
 proj4.defs(
@@ -134,7 +133,7 @@ const EDIT_MODES: Record<
   typeof ViewMode | typeof ModifyMode | typeof LineStringNetworkDrawMode
 > = {
   view: ViewMode,
-  modify: ModifyMode,
+  modify: LineStringNetworkModifyMode,
   deleteVertex: ModifyMode,
   drawLine: LineStringNetworkDrawMode,
 };
@@ -167,87 +166,6 @@ function getEndpointMarkers(
   }
 
   return markers;
-}
-
-function getMovedEndpoint(
-  featureCollection: EditableFeatureCollection,
-  editContext: EditableEditContext | undefined,
-): LineStringEndpointRef | null {
-  const featureIndex = editContext?.featureIndexes?.[0];
-  const coordinateIndex = editContext?.positionIndexes?.[0];
-
-  if (typeof featureIndex !== "number" || typeof coordinateIndex !== "number") {
-    return null;
-  }
-
-  const feature = featureCollection.features[featureIndex];
-  if (!feature) {
-    return null;
-  }
-
-  const { coordinates } = feature.geometry;
-  if (coordinateIndex !== 0 && coordinateIndex !== coordinates.length - 1) {
-    return null;
-  }
-
-  const coordinate = coordinates[coordinateIndex];
-  if (!coordinate) {
-    return null;
-  }
-
-  return {
-    featureIndex,
-    coordinateIndex,
-    coordinate: toCoordinate2d(coordinate),
-  };
-}
-
-function applySharedEndpointMove(
-  previousData: EditableFeatureCollection,
-  updatedData: EditableFeatureCollection,
-  editContext: EditableEditContext | undefined,
-  dragRef: MutableRefObject<SharedEndpointDrag | null>,
-) {
-  const movedEndpoint = getMovedEndpoint(updatedData, editContext);
-  if (!movedEndpoint) {
-    dragRef.current = null;
-    return updatedData;
-  }
-
-  if (
-    !dragRef.current ||
-    dragRef.current.featureIndex !== movedEndpoint.featureIndex ||
-    dragRef.current.coordinateIndex !== movedEndpoint.coordinateIndex
-  ) {
-    const previousMovedEndpoint = getMovedEndpoint(previousData, editContext);
-    if (!previousMovedEndpoint) {
-      return updatedData;
-    }
-
-    dragRef.current = {
-      featureIndex: movedEndpoint.featureIndex,
-      coordinateIndex: movedEndpoint.coordinateIndex,
-      endpoints: getConnectedLineStringEndpoints(
-        previousData,
-        previousMovedEndpoint,
-        { toleranceMeters: SNAP_TOLERANCE_METERS },
-      ).endpoints,
-    };
-  }
-
-  const sharedEndpoints = dragRef.current.endpoints;
-  const snapTarget = findNearestLineStringEndpoint(
-    getLineStringEndpointRefs(updatedData),
-    movedEndpoint.coordinate,
-    { ignore: sharedEndpoints, toleranceMeters: SNAP_TOLERANCE_METERS },
-  );
-  const finalCoordinate = snapTarget?.coordinate ?? movedEndpoint.coordinate;
-
-  return moveLineStringEndpointGroup(
-    updatedData,
-    { representativeCoordinate: sharedEndpoints[0]?.coordinate ?? finalCoordinate, endpoints: sharedEndpoints },
-    finalCoordinate,
-  );
 }
 
 function snapNewFeatureEndpoints(
@@ -544,7 +462,6 @@ export function CogLineEditorMap() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const hasLoadedGeoPackage = useRef(false);
   const nextFeatureId = useRef(1);
-  const sharedEndpointDrag = useRef<SharedEndpointDrag | null>(null);
   const disabledMapDragPan = useRef(false);
 
   const [editableData, setEditableData] =
@@ -727,6 +644,11 @@ export function CogLineEditorMap() {
                 snapTargets: getLineStringEndpointRefs(editableData),
                 snapTolerance: DRAW_SNAP_TOLERANCE_METERS,
               } satisfies LineStringNetworkDrawModeConfig)
+            : mode === "modify"
+            ? ({
+                snapTolerance: SNAP_TOLERANCE_METERS,
+                moveConnectedEndpoints: true,
+              } satisfies LineStringNetworkModifyModeConfig)
             : undefined,
         selectedFeatureIndexes,
         pickable: true,
@@ -748,20 +670,6 @@ export function CogLineEditorMap() {
           const lineOnlyData = coerceLineFeatures(updatedData);
           let normalized = normalizeFeatureIds(lineOnlyData, nextFeatureId);
 
-          if (
-            editType === "movePosition" ||
-            editType === "finishMovePosition"
-          ) {
-            normalized = applySharedEndpointMove(
-              editableData,
-              normalized,
-              editContext,
-              sharedEndpointDrag,
-            );
-          } else {
-            sharedEndpointDrag.current = null;
-          }
-
           if (editType === "addFeature") {
             normalized = snapNewFeatureEndpoints(
               editableData,
@@ -771,7 +679,6 @@ export function CogLineEditorMap() {
           }
 
           if (editType === "finishMovePosition") {
-            sharedEndpointDrag.current = null;
             restoreMapDragPan();
             setMapCursor("");
           }

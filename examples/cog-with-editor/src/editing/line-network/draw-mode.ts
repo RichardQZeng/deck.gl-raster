@@ -63,6 +63,15 @@ export class LineStringNetworkDrawMode extends DrawLineStringMode {
 
   handleClick(event: ClickEvent, props: any) {
     const clickSequence = this.getClickSequence();
+
+    if (event.sourceEvent?.button === 2 || event.sourceEvent?.which === 3) {
+      event.sourceEvent?.preventDefault?.();
+      if (clickSequence.length > 1) {
+        this.finishDrawing(props);
+      }
+      return;
+    }
+
     const { event: snapAwareEvent, snapTarget } = this.getSnapAwareEvent(
       event,
       props,

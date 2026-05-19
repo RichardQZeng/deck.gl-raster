@@ -27,6 +27,7 @@ The app is intentionally minimal and keeps editing logic in the example layer in
 ## Current capabilities
 
 - View a NAIP COG raster
+- Load `agents/ASPEN_CHM_Sample_nodata_cog.tif` by default on startup
 - Show editable line GeoJSON above raster
 - Load editable `centerline` LineStrings from a local GeoPackage file
 - Switch modes: view, edit vertices, draw line
@@ -41,8 +42,9 @@ The app is intentionally minimal and keeps editing logic in the example layer in
 - Seed data lives in `src/data/initial-lines.ts`
 - Coordinates are WGS84 lon/lat (`EPSG:4326`)
 - Local GeoPackage imports read only the `centerline` feature table
-- Imported GeoPackage data is supported when `centerline` is `EPSG:4326` or `EPSG:2956`
+- Imported GeoPackage data is supported when `centerline` is `EPSG:4326`, `EPSG:2956`, `EPSG:26912`, or a custom GeoPackage SRS whose horizontal CRS is UTM zone 12N
 - `EPSG:2956` centerlines, such as `agents/test.gpkg`, are reprojected to WGS84 for editing
+- Custom compound GeoPackage CRS entries, such as `agents/centerline_aux.gpkg` with `srs_id = 100000`, are reprojected using their UTM zone 12N horizontal component
 - Z coordinates are stripped on import because the editor stores edited positions as 2D lon/lat
 
 ## Import status messages

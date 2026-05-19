@@ -16,13 +16,36 @@ proj4.defs(
   "EPSG:2956",
   "+proj=utm +zone=12 +ellps=GRS80 +datum=NAD83 +units=m +no_defs +type=crs",
 );
+proj4.defs(
+  "EPSG:26912",
+  "+proj=utm +zone=12 +datum=NAD83 +units=m +no_defs +type=crs",
+);
+
+function getSourceCrs(srsId: number) {
+  if (srsId === 2956) {
+    return TEST_GPKG_SRS;
+  }
+
+  // Some GeoPackages store a custom compound CRS id while the horizontal part
+  // is still NAD83 / UTM zone 12N, which is all this editor needs for XY reprojection.
+  if (srsId === 26912 || srsId === 100000) {
+    return "EPSG:26912";
+  }
+
+  return null;
+}
 
 function transformCoordinate(position: Position, srsId: number) {
   if (srsId === 4326) {
     return toCoordinate2d(position);
   }
 
-  const [longitude, latitude] = proj4(TEST_GPKG_SRS, WGS84, [
+  const sourceCrs = getSourceCrs(srsId);
+  if (!sourceCrs) {
+    throw new Error(`Unsupported CRS: EPSG:${srsId}`);
+  }
+
+  const [longitude, latitude] = proj4(sourceCrs, WGS84, [
     position[0],
     position[1],
   ]);
@@ -122,7 +145,7 @@ export async function loadCenterlineTable(
     const featureDao = geoPackage.getFeatureDao(CENTERLINE_TABLE_NAME);
     const srsId = featureDao.srs.srs_id;
 
-    if (srsId !== 4326 && srsId !== 2956) {
+    if (srsId !== 4326 && !getSourceCrs(srsId)) {
       throw new Error(`Unsupported CRS: EPSG:${srsId}`);
     }
 

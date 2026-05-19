@@ -1,6 +1,7 @@
+import defaultCogUrl from "../../../../ASPEN_CHM_Sample_nodata_cog.tif?url";
+
 // App/IO constants.
-export const DEFAULT_COG_URL =
-  "https://ds-wheels.s3.us-east-1.amazonaws.com/m_4007307_sw_18_060_20220803.tif";
+export const DEFAULT_COG_URL = defaultCogUrl;
 export const CENTERLINE_TABLE_NAME = "centerline";
 export const WGS84 = "EPSG:4326";
 export const TEST_GPKG_SRS = "EPSG:2956";
